@@ -1,7 +1,7 @@
 ---
 title: "Time Series Analysis - Project 1" 
 subtitle: "Time Series Forecasting of Share Returns: Model Selection and Prediction for Next 15 Trading Days"
-author: "Prepared by Shaikh Mohammad Rahil, s3960736"
+author: "Prepared by Shaikh Mohammad Rahil"
 date: "` March 27, 2023`"
 output: 
   html_document: 
