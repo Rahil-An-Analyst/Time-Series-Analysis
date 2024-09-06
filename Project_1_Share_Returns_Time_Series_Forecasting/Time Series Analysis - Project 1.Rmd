@@ -1,0 +1,665 @@
+---
+title: "Time Series Analysis - Project 1" 
+subtitle: "Time Series Forecasting of Share Returns: Model Selection and Prediction for Next 15 Trading Days"
+author: "Prepared by Shaikh Mohammad Rahil, s3960736"
+date: "` March 27, 2023`"
+output: 
+  html_document: 
+    toc: true
+  pdf_document: default
+toc-title: "Table of Contents"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r message=FALSE, warning=FALSE}
+library(TSA)
+library(forecast)
+```
+
+## Nomenclature
+
+- TS - Time Series
+- model1: Linear model
+- model2: Quadratic model
+- model3: Seasonal model
+- model4: Harmonic model
+- model5: Seasonal*Quadratic model
+- model6: Seasonal+Quadratic model
+
+## Objective
+
+To analyse the ShareReturns.csv data which represents the return (in AUD100,000) of a share market trader's investment portfolio. Our aim is to:  <br />
+1. Find the best fitting model among the linear, quadratic, cosine, cyclical, seasonal trend models or their combinations by implementing the model-building strategy. <br />
+2. Give the predictions for the next 15 trading days using the best model found.
+
+## Share Returns Data
+
+The data set comprises of 127 observations out of possible 252 trading days in a year. All the points are collected in the same year and on consecutive trading days. We disregard the weekend days when the markets are off; hence,  Friday and Monday are taken as consecutive days. No adjustments are made for weekend days.
+
+### Read data
+
+```{r}
+Rawdata <- read.csv("C:/Users/admin/Desktop/Time Series/ShareReturns.csv")
+head(Rawdata) 
+length(Rawdata$X) #check row count
+```
+
+'Rawdata' Dataframe will be used to create the Time Series. Capital X represents the 'Trading Days' and small x is the 'Share Returns in 100,000 AUD'. 
+
+Lets convert 'Rawdata' to a Time Series object which is our required datatype to generate models,
+
+```{r}
+# Convert to Time Series object
+returns <- ts(as.vector(Rawdata$x))
+summary(returns)
+```
+
+'returns' is our Time series. From the statistics, we notice Mean and Median of the Share Returns are very close. This tells us that the distribution would be symmetrical. For further analysis, lets plot our Time series 'returns'.
+
+### Time Series of Share Returns 
+
+The time series plot for our data is generated using the following code chunk.
+
+```{r}
+# Plot time series using returns TS object
+plot(returns,type='o',ylab='Share Returns (in 100,000 AUD)', xlab = 'Trading days',
+     main = "Figure 1. Time series plot of share returns")
+```
+
+
+**Plot Inference**
+
+From Figure 1, we can comment on the time series's,
+
+- **Seasonality**: 
+  There are repeating wavy patterns seen over a period of, what looks like, a week (see from 120-127 days). Thus, we would require a seasonal component in our model.
+  
+- **Trend**: 
+  There is an obvious downward trend as when the number of days increases, the mean Share returns per week decreases. The slope will be negative between the Share returns and the Trading days.
+
+- **Change in variance**: 
+  There is in an increase in variance as trading days increases. The Range (vertical shift) of the wave patterns over the weeks increases. 
+
+- **Behavior**: 
+  The general behavior is tough to say at this point as the series displays mixed behavior.
+
+- **Intervention points**: 
+  There is no sudden change in the plot at any point of time. Thus, no intervention points. 
+
+
+Lets look at the relation between Share returns of adjacent trading days. From Figure 1, since large changes in share returns do not occur from one trading day to the next, we expect high correlation between shares of consecutive days. The following plot shows the correlation between share return versus the previous day's share return:
+
+```{r}
+# Plot scatter plot to check auto-correlation
+plot(y=returns,x=zlag(returns),ylab='Share Return', xlab='Previous Years Share Return', main = "Figure 2: Scatter plot of share returns between consecutive days.")
+```
+
+As expected, we observe a high correlation between returns of succeeding days. However, it is impossible to observe seasonality using this scatter plot. The amount of correlation between neighboring return values is $0.963$:
+
+```{r}
+y = returns             # Read the share returns data into y
+x = zlag(returns)       # Generate first lag of the share returns series
+index = 2:length(x)     # Create an index to get rid of the first NA value in x
+cor(y[index],x[index])  # Calculate correlation between numerical values in x and y
+```
+
+
+## Model-Building
+
+we will follow a multistage model-building strategy with the following three steps:
+
+- **model specification**, (or identification)
+- **model fitting**, and
+- **model diagnostics.**
+
+In **model specification** (or identification), the classes of time series models are selected that may be appropriate for a given observed series. Figure 1 hints our time series would be either linear, quadratic, seasonal, harmonic or more likely a combination of these models. We will attempt to adhere to the principle of parsimony; that is, choose a model that requires minimum parameters to represent our time series 'returns'
+
+The **model fitting** consists of finding the best possible estimates of a number of parameters involved in the model. We will stick to least squares statitical estimation technique.
+
+**Model diagnostics** will be done to check our model's fit and check if the modelling assumptions are satisfied.
+
+Lets begin this strategy from the most basic model, Linear model.
+
+## Linear Model (model specification)
+
+The deterministic linear trend model is expressed as follows: $\mu_t = \beta_0 + \beta_1 t $, where $\beta_0$ represents intercept and $\beta_1$ corresponds to the slope of the linear trend. 
+
+We test linear model for our $returns$ time series as we see a downward trend. Lets fit the linear model and examine, 
+
+### Fitting Linear model (model fitting)
+
+The linear model for 'returns' time series is,
+```{r}
+# Generate Linear model using lm() Least squares method
+model1 = lm(returns~time(returns)) # label the model as model1
+
+# Display model summary
+summary(model1)
+```
+
+Here, 173.38 and -1.59 coefficients for Intercept and Slope are both significant at 5% signficance level (p<0.05 ). Also, the model's p-value is < 0.05, implying the linear model is significant. 
+
+Lets impose the linear model's trend line over the time series to visualise the model's fit,
+
+```{r}
+# Plot linear model over time series
+plot(returns,type='o',ylab='Return (in AUD100,000) of a share', xlab = 'Trading days', main = "Figure 3: Fitted linear estimates on 'returns' time series")
+abline(model1)
+```
+
+Other than capturing the downward trend in the time series, clearly, the linear model is a very bad fit for our data although the $R^2$ value is 88.16%. We cannot depend on $R^2$ for goodness of fit.
+
+If the trend model is reasonably correct, then the residuals should behave roughly like the true stochastic component, and various assumptions about the stochastic component can be assessed by looking at the residuals. Hence, lets perform residual analysis for the linear model.
+
+### Residual Analysis (model diagnosis)
+
+The $estimator$ or $predictor$ of unobserved stochastic component {$X_t$}, <br />
+$\hat{X_t} = Y_t - \hat{\mu_t}$ <br />
+is called **residual** corresponding to the $t^{th}$ observation.
+
+The residuals should behave roughly like independent (normal) random variables with zero mean and standard deviation of s for a white noise process. And by a white noise process, we mean a process with zero mean and a constant variance. Our time series does not depict constant variance. Hence, it is not going to be a white noise process
+
+***Side note:*** *The residuals roughly display the behavior of the stochastic component {$Y_t$} of the model. For example, if the time series models to a white noise process (zero mean and constant variance), then the residuals behave roughly like independent (normal) random variables with zero mean and standard deviation of s. From Figure 1, we see a non-constant variance, meaning our time series's model would not be a white noise process.*
+
+Lets compute the residuals or standardized residual for Linear model and then examine various residual plots. Residuals are calculated using the rstudent() on the model.
+
+```{r}
+res.model1 = rstudent(model1) # Store residuals in res.model1
+```
+
+```{r}
+# Create partitions for display
+par(mfrow=c(2,2))
+
+# Plot residuals vs weeks to check randomness of the residuals
+plot(y = res.model1, x = as.vector(time(returns)),xlab = 'Time', ylab='Standardized Residuals',type='l',main = "Standardised residuals trend from linear model")
+
+# Plot histogram (distribution) of residuals to visualize normality
+hist(res.model1,xlab='Standardized Residuals', main = "Histogram of standardized residuals")
+
+# Plot Quantile-Quantile to visualize normality 
+qqnorm(y=res.model1, main = "QQ plot of standardized residuals")
+qqline(y=res.model1, col = 2, lwd = 1, lty = 2)
+
+# Plot ACF to check correlation coverage by fitted model
+acf(res.model1, main = "ACF of standardized residuals")
+```
+
+Lets examine each plot one by one for Linear model, 
+
+**Standardized residuals trend**
+
+We notice patterns in the plot, which is not good. Ideally, for a good fitted model, we expect no discernible trends whatsoever. Clearly the residuals depict seasonality over time. This means, our linear model does not capture the seasonality of our time series. Also, there is a gradual increase in the range (vertical shift) as the trading days increase. That is, variance increases over time. 
+
+On the other hand, the residuals do not reflect the downward trend seen in the time series, meaning the linear model captures it to some extend (still we notice a s-shaped/wave shaped curve).
+
+The residuals trend plot tells us that linear model is not a good fit for our series.
+
+**Histogram of standardized residuals**
+
+The histogram for standardized residuals has more negative values (residual value < 1) than positive values. This suggests our linear model estimates are lower than the observed 
+values in general (in  Figure 3, we notice, most of the series lies below the model line). Hence, more negative residuals.
+
+Ideally, we want the residuals to display normality. Linear model does display normality, but fails the fitness (from Standardized residuals trend). 
+
+**QQ plot of standardized residuals**
+
+We want the data points to be on the dotted line for normality. Clearly, both the tails are off. From the Shapiro wilk normality test, since p < 0.05 significance level, we reject the null hypothesis that states the data is normal. 
+
+```{r}
+# To determine normality statistically
+shapiro.test(res.model1)
+```
+
+**ACF of standardized residuals**
+
+An ACF plot or the Auto-correlation function plot tells us about the correlation between Share returns over different time lags (in our case, days). ACF plots tells us a lot more about the residuals, as well as the time series. The blue dotted lines mark the confidence limits for the correlation. The lines give the values beyond which the auto correlations are (statistically) significantly different from zero. The vertical bars depict significant peaks. If a model fits a series well, then all the significance bars need to be within the confidence limits.
+
+Since all the bars exceed the confidence limits, it means the linear model does not capture any autocorrelation in the residuals. According to the ACF plot none of the hypotheses $ρ_k=0$ can be accepted (indicating, not a white noise process). The ACF plot clearly suggests that the linear model does not fit our data.
+
+
+## Quadratic Model (model specification)
+
+The deterministic quadratic  trend model is expressed as follows:  <br />
+$\mu_t = \beta_0 + \beta_1 t + \beta_2t^2$,  <br />
+where $\beta_0$ represents intercept and $\beta_1$ corresponds to the linear trend, and $\beta_2$ corresponds to quadratic trend in time.
+
+Since linear model does not provide a good fit, we test if quadratic model fits our $returns$ series better. Lets fit the quadratic model over returns series.
+
+### Fitting Quadratic model (model fitting)
+
+```{r}
+# load t as time 
+t = time(returns)
+
+# t2 as time squared
+t2 = t^2
+
+# Generate Quadratic model using lm() Least squares method
+model2 = lm(returns~ t + t2) # label the quadratic trend model as model2
+
+# Check model summary
+summary(model2)
+```
+
+According to the p-values, the quadratic trend term is found insignificant (0.304 < 0.05 significance level). Since the quadratic term is insignificant, the quadratic model is nearly the same as linear model for our time series. The R-squared of 88.26% tells the same (for linear it was 88.16%). Thus, picking either one works. But, lets examine closely by performing the residual analysis. 
+
+Before that, Lets impose the quadratic model's trend line over the time series for visualization,
+
+```{r}
+# Plot Quadratic model over time series  
+plot(ts(fitted(model2)), ylim = c(min(c(fitted(model2), as.vector(returns))), max(c(fitted(model2),as.vector(returns)))),
+     ylab='Share Returns', xlab = 'Trading days', main = "Figure 5: Fitted quadratic estimates on 'returns' time series", type="l")
+lines(as.vector(returns),type="o")
+```
+
+Moving on to the residual analysis.
+
+### Residual Analysis (model diagnosis)
+
+The residuals from quadratic model are,
+
+```{r}
+res.model2 = rstudent(model2)
+```
+
+```{r}
+# Create partitions for display
+par(mfrow=c(2,2))
+
+# Plot residuals vs weeks to check randomness of the residuals
+plot(y = res.model2, x = as.vector(time(returns)),xlab = 'Time', ylab='Standardized Residuals',type='l',main = "Standardised residuals from Quadratic model")
+
+# Plot histogram (distribution) of residuals to visualize normality
+hist(res.model2,xlab='Standardized Residuals', main = "Histogram of standardised residuals")
+
+# Plot Quantile-Quantile to visualize normality 
+qqnorm(y=res.model2, main = "QQ plot of standardised residuals")
+qqline(y=res.model2, col = 2, lwd = 1, lty = 2)
+
+# Plot ACF to check correlation coverage by fitted model
+acf(res.model2, main = "ACF of standardized residuals")
+```
+
+Lets breakdown each plot one by one for Quadratic model, 
+
+**Standardized residuals trend**
+
+The residuals trend are identical to the residual trends seen from linear model. This is expected as the quadratic term is insignificant. 
+
+**Histogram of standardized residuals**
+
+The residual histogram of quadratic model is almost same as linear model. On closer look, histogram of quadratic model is slightly better as it covers residual values >1 better than the histogram of linear model (comparing standardized residuals from 2-3 from linear and quadratic models).
+
+**QQ plot of standardized residuals**
+
+QQ plot for quadratic model is almost same as that for linear model. From the Shapiro wilk normality test, since p < 0.05 significance level, we reject the null hypothesis that states the data is normal. 
+
+```{r}
+shapiro.test(res.model2)
+```
+
+**ACF of standardized residuals**
+
+ACF of quadratic model is very slightly better than linear model (the significance bars are very slightly more inside the confidence limits than that for linear mode) but the results are same. All the bars exceed the confidence limits, meaning the quadratic model does not capture any autocorrelation in the residuals, the stochastic component of the series is not white noise, and quadratic model does not fit our data.
+
+Since the quadratic model performs very slightly better than the linear model, we chose quadratic model over linear model. Ofcourse, quadratic model on its own is not enough. We look further to fit the seasonal aspect of the time series. We examine the seasonal and harmonic models next.
+
+
+
+
+## Seasonal Model (model specification)
+
+The deterministic seasonal trend model is expressed as follows: $Y_t = \mu_t + X_t$, where $E(X_t)=0$ for all t, and $\mu_t$ is defined as per the seasonal parameters as,  <br />
+
+$\mu_t$ = {$\beta_1$ for season 1, $\beta_2$ for season 2, $\beta_3$ for season 3, ... }  <br />
+
+Since our time series clearly displays seasonality, lets fit seasonal model to 'returns' series.
+
+### Fitting Quadratic model (model fitting)
+
+To test a either seasonal or harmonic model the frequency of the time series cannot be 1. $returns$ has frequency as 1.
+```{r}
+returns
+```
+
+We need to find the frequency of our TS object (returns). We can get the frequency by counting the vertical bars in the ACF plot of our model,
+```{r}
+acf(res.model2, main = "ACF of standardized residuals for Quadratic model")
+```
+On counting the lines between each top points, we find **frequency** to be **7.** 
+
+Lets recreate our TS object but now with frequency of 7 instead of 1,
+```{r}
+returns_f7 <- ts(Rawdata$x, frequency=7)
+```
+
+Lets get the seasons, in our case, the weekdays.
+```{r}
+weekdays.= season(returns_f7) # Weekdays added as indicators
+weekdays.
+returns_f7
+```
+Notice, the frequency has been changed to 7 as per the 7 weekdays.
+
+Now, we can fit the seasonal model to our new time series $returns_f7$,
+```{r}
+model3 = lm(returns_f7~weekdays.-1) # -1 removes the intercept term. when we have the intercept in the model, we interpret resulting parameters as the 
+                       # difference between the first weekday and the related one. We don't want this, we want each weekdays parameters, not their difference.
+summary(model3)
+```
+
+From the summary statistics, the seasonal model is significant (p-value<0.05 significance level). 
+
+The coefficients for each weekday are shown. All the coefficients are significant (p < 0.05). Looking at the values of the estimates/coefficients for each weekday, we observe Monday has the largest coefficient. This means, for each season (in our case week), Mondays have the peak share returns. This makes sense as the share markets see investing pouring in on the open day, Monday. Also, we observe the values go down till Friday and then goes back up again in the weekends. We can confirm the same by looking at our time series plot fitted with weekday indicators (notice we are indicating the time axis in weeks rather than in days to indicate seasonality),
+
+```{r}
+plot(returns_f7,type='l',ylab='Returns', xlab = 'Weeks')
+points(y=returns_f7,x=time(returns_f7), pch=as.vector(season(returns_f7)))
+```
+
+***R-squared:***
+
+Note the R-Squared value is quite small. Why? lets fit the model on the time series to find out,
+
+```{r}
+plot(ts(fitted(model3)), ylab = 'Returns', xlab ='Trading days', main = 'Figure 6:Fitted seasonal estimates on time series of freq 7',
+     ylim = c(min(c(fitted(model3), as.vector(returns_f7))) ,
+              max(c(fitted(model3), as.vector(returns_f7)))
+     ), xlim = c(0,127) ) 
+lines(as.vector(returns_f7), type = 'o')
+```
+
+From figure 6, we understand the loss in R-squared is due to the model only fitting the middle section of our time series data. This is due to the obvious downward trend in the time series.
+
+*Note: It fits perfectly for the Trading days around day number 60 (the middle portion).*
+
+Moving on to the residual analysis to diagnose the seasonal model,
+
+### Residual Analysis (model diagnosis)
+
+The residuals from seasonal model are,
+
+```{r}
+res.model3 = rstudent(model3)
+```
+
+```{r}
+# Create partitions for display
+par(mfrow=c(2,2))
+
+# Plot residuals vs weeks to check randomness of the residuals
+plot(y = res.model3, x = as.vector(time(returns_f7)),xlab = 'Weeks', ylab='Standardized Residuals',type='l',main = "Standardised residuals from seasonal model.")
+
+# Plot histogram (distribution) of residuals to visualize normality
+hist(res.model3,xlab='Standardized Residuals', main = "Histogram of standardised residuals.")
+
+# Plot Quantile-Quantile to visualize normality 
+qqnorm(y=res.model3, main = "QQ plot of standardised residuals.")
+qqline(y=res.model3, col = 2, lwd = 1, lty = 2)
+
+# Plot ACF to check correlation coverage by fitted model
+acf(res.model3, main = "ACF of standardized residuals.")
+
+```
+
+Lets breakdown each plot one by one for Seasonal model, 
+
+**Standardized residuals trend**
+
+We see that the middle portion (around week 10) does not have any patterns. Meaning, this portion is captured well by the seasonal model. Same cannot be said for the portions on the left and right of week 10. These portions show seasonal pattern along with steady change in range (vertical shift), i.e, change in variance. Thus, the seasonal model does not capture our time series, except for the middle portion of our time series. This hints, we need to add another model to the seasonal model to fit our time series.
+
+**Histogram of standardized residuals**
+
+Ideally we want the histogram plot to have high frequency count for zero standardized residual value (that is, high normality). In our histogram plot, we see the opposite. This means our seasonal model did not capture either end of the time series properly. Hence, seasonal model alone is not a good fit for our time series.
+
+**QQ plot of standardized residuals**
+
+From the QQ plot, we see that both tails are off. This implies non-normality. This is due to the the lower and upper end of the model not fitting our time series. p value is < 0.05, hence we reject the null hypothesis which states data is normal. 
+
+```{r}
+shapiro.test(res.model3)
+```
+
+**ACF of standardized residuals**
+
+All the significant bars are outside the confidence level, which indicates none of the correlation is covered by our model. The bars form a wave pattern (look at the top of vertical bars). Thus, as expected, seasonal model captures our time series's seasonality. Except for the seasonality aspect, Seasonal model on its own does not reflect our time series. 
+
+Thus, we need to add another component to this seasonal model. But, does harmonic model better fit our time series than seasonal model? lets examine.
+
+
+
+## Harmonic Model (model specification)
+
+harmonic model includes the information on the shape of the seasonal trend (missing in seasonal model) by assigning a cosine curve as the mean function $\mu_t$. The mean function $\mu_t$ is given as,  <br />
+
+$\mu_t$ = $\beta cos(2\pi ft)$ = $\beta_0 + \beta_1 cos(2\pi ft) + \beta_2 sin(2\pi ft)$ <br />
+
+Here the constant term $\beta_0$ represents a cosine with frequency zero
+
+lets fit harmonic model to 'returns' series.
+
+### Fitting harmonic model (model fitting)
+
+we can fit the harmonic model to our time series having frequeny 7 $returns_f7$ by first generating the sine and cosine components using,
+```{r}
+har.=harmonic(returns_f7,1) # Assign sine and cosine components in the har. object
+head(har.)
+```
+
+Now, we can fit the harmonic model as,
+```{r}
+model4=lm(returns_f7~ har.)
+summary(model4)
+```
+
+From the summary stats of the harmonic model, we notice that the cosine coefficient is significant, but the sine coefficient is insignificant. Thus, we do not need the sine component. If we eliminate the sine component, the cosine component tells us the seasonal aspects of the time series for which seasonal model is enough.
+
+Note, the R-squared value is very low, lets plot the harmonic trend line on our time series,
+
+```{r}
+plot(ts(fitted(model4)), ylim = c(min(c(fitted(model4),as.vector(returns_f7))), max(c(fitted(model4),as.vector(returns_f7)))),
+     ylab='y' , main = "Fitted harmonic estimates on our time series", type="l",lty=2,col="red")
+lines(as.vector(returns_f7),type="o")
+```
+We notice that the harmonic model fits our time series just like seasonal model. But, the R-squared statistics in harmonic model is 6% (for seasonal 59%). This $R^2$ value is brought down because, of the insignificance of the sine component in harmonic model. Although, $R^2$ is not a good fitness test, we are leaning towards seasonal model as a better fitting model due to avoidance of the sine component.
+
+Moving on to the residual analysis.
+
+### Residual Analysis (model diagnosis)
+
+The residuals from seasonal model are,
+
+```{r}
+res.model4 = rstudent(model4)
+```
+
+
+```{r}
+# Create partitions for display
+par(mfrow=c(2,2))
+
+# Plot residuals vs weeks to check randomness of the residuals
+plot(y = res.model4, x = as.vector(time(returns_f7)),xlab = 'Time', ylab='Standardized Residuals',type='l',main = "Standardised residuals from harmonic model.")
+
+# Plot histogram (distribution) of residuals to visualize normality
+hist(res.model4,xlab='Standardized Residuals', main = "Histogram of standardised residuals.")
+
+# Plot Quantile-Quantile to visualize normality 
+qqnorm(y=res.model4, main = "QQ plot of standardised residuals.")
+qqline(y=res.model4, col = 2, lwd = 1, lty = 2)
+
+# Plot ACF to check correlation coverage by fitted model
+acf(res.model4, main = "ACF of standardized residuals.")
+```
+
+
+Lets breakdown each plot one by one for harmonic model, 
+
+**Standardized residuals trend**
+
+The plot is identical to that of seasonal model. The residuals show harmonic patterns except around week 10. If we choose harmonic model, it alone wont be enough to fit our time. series.
+
+**Histogram of standardized residuals**
+
+The plot is identical to that of seasonal model. Histogram suggests poor fit to time series.
+
+**QQ plot of standardized residuals**
+
+The plot is identical to that of seasonal model. p value is < 0.05, hence we reject the null hypothesis which states data is normal. 
+
+```{r}
+shapiro.test(res.model4)
+```
+
+**ACF of standardized residuals**
+
+The plot is identical to that of seasonal model. ACF indicates poor correlation coverage. Harmonic model on its own does not reflect our time series. 
+
+All the significant bars are outside the confidence level, which indicates none of the correlation is covered by our model. The bars form a wave pattern (look at the top of vertical bars). Thus, as expected, seasonal model captures our time series's seasonality. Except for the seasonality aspect, Seasonal model on its own does not reflect our time series. 
+
+The residual analysis suggests no difference between harmonic and seasonal models. Hence, we stick to seasonal model as a better fitting model due to avoidance of the sine component.
+
+Now, since none of the basic models fit our time series 'returns_f7', we need to have a mixed these models to get a good fit. Between Linear and Quadratic, we found Quadratic model to be better fitting. And between Seasonal and Harmonic, Seasonal model fits better. Lets use combination of seasonal and quadratic models.
+
+## Seasonal*Quadratic vs Seasonal+Quadratic (model specification and model fitting)
+
+Lets compare these 2 models next to next and examine the fit visually,
+
+The Seasonal*Quadratic model is given as,
+
+```{r}
+model5 = lm(returns_f7~weekdays.*(t + t2) -1)
+```
+
+The Seasonal+Quadratic model is given as,
+
+```{r}
+model6 = lm(returns_f7~weekdays.+ (t + t2) -1)
+```
+
+```{r}
+# Plot Seasonal*Quadratic model over TS object
+plot(ts(fitted(model5)), ylim = c(min(c(fitted(model5),as.vector(returns_f7))), max(c(fitted(model5),as.vector(returns_f7)))),
+     ylab='y' , main = "Fitted Seasonal*Quadratic curve on our time series", type="l",lty=2,col="red")
+lines(as.vector(returns_f7),type="o")
+```
+
+```{r}
+# Plot Seasonal+Quadratic model over TS object
+plot(ts(fitted(model6)), ylim = c(min(c(fitted(model6),as.vector(returns_f7))), max(c(fitted(model6),as.vector(returns_f7)))),
+     ylab='y' , main = "Fitted Seasonal+Quadratic curve on our time series", type="l",lty=2,col="red")
+lines(as.vector(returns_f7),type="o")
+```
+
+Clearly, we can see that Seasonal*Quadratic model fits our share returns time series better.
+
+Now that model5, Seasonal*Quadratic is our well fitting model, lets perform residual analysis for diagnosis.
+
+### Residual Analysis (model diagnosis)
+
+```{r}
+# Generate residuals for the model
+res.model5 = rstudent(model5)
+```
+
+```{r}
+# Create partitions for display
+par(mfrow=c(2,2))
+
+# Plot residuals vs weeks to check randomness of the residuals
+plot(y = res.model5, x = as.vector(time(returns_f7)),xlab = 'Weeks', ylab='Standardized Residuals',type='l',main = "Standardised residuals from seasonal model.")
+
+# Plot histogram (distribution) of residuals to visualize normality
+hist(res.model5,xlab='Standardized Residuals', main = "Histogram of standardised residuals.")
+
+# Plot Quantile-Quantile to visualize normality 
+qqnorm(y=res.model5, main = "QQ plot of standardised residuals.")
+qqline(y=res.model5, col = 2, lwd = 1, lty = 2)
+
+# Plot ACF to check correlation coverage by fitted model
+acf(res.model5, main = "ACF of standardized residuals.")
+```
+
+
+Lets breakdown each plot one by one for Seasonal*Quadratic model, 
+
+**Standardized residuals trend**
+
+We do not notice seasonality, downward trend or increase in range (change in variance). Thus, the seasonal*quadratic model fits our time series better than other models
+
+**Histogram of standardized residuals**
+
+The plot is fairly normal. The histogram of residuals for seasonal*quadratic depicts normality better than other models
+
+**QQ plot of standardized residuals**
+
+QQ plot shows deviations from normality. The p-value is still < 0.05 indicating non-normality. Still, this is the best fitting model we have.
+
+```{r}
+shapiro.test(res.model5)
+```
+
+**ACF of standardized residuals**
+
+The ACF plots shows a few significance bars inside the confidence limits. But, yes, the model is not perfect fitting as we see many significance bars outside the confidence limits, indicating not all correlations are covered by our model. 
+
+From the available options, Seasonal*Quadratic comes the closest to a well fitting model. Off the top of my head, looking at Figure 1, an s-curve is notice in the downward trend rather than a linear or quadratic downward trend. Thus, maybe an exponential component can be used to either replace or add to the quadratic component. For now, we stick to these 4 models only.
+
+
+## Forecasting
+
+Forecasting is one of the reasons regression models are built for. Lets generate the forecasts for next 15 trading days of our time series. To generate forecasts h  steps ahead, we follow the following process;
+
+- Generate a sequence of time points of lengths 15 starting from the last observation point. Our new sequence becomes t=128 to 142. (Note: New sequence must match the structure and variable names as the model)
+- Write each value of the new sequence generated in the previous step in place in the fitted model and calculate forecasts.
+
+Unfortunately, generating a new sequence just our time series model for Seasonal*Quadratic can be complex as there are many coefficients to be considered (7 weekdays coefficients and 2 slopes of linear and quadratic term)
+```{r}
+summary(model5)
+```
+
+To avoid such complex calculations, we can use the S-ARIMA model. Data Heroes (2021) points out that S-ARIMA model can be fit to a seasonal time series.
+
+```{r}
+modelarima = auto.arima(returns_f7,D=1) # auto.arima() from Forecast package
+fcst = forecast(modelarima,h=15) # Generate the forecast values
+fcst
+```
+We are interested in the fitted forecasts/ point forecast which tells us the forecast values of the share returns for the trading days 128 to 142. The Lo95 and Hi95 columns tells us the confidence limits of the forecast values as per the S-ARIMA model.
+
+Lets visualize the forecasts next to our time series. The blue lines are the fitted forecast values. The shaded region covers the upper and lower confidence limits.
+
+```{r}
+# Plot forecast values 
+plot(fcst)
+points(y=returns_f7,x=time(returns_f7), pch=as.vector(season(returns_f7)))
+```
+
+
+## References
+
+Data Heroes (Jan 16, 2021) *'SARIMA - Seasonal ARIMA - Forecasting Model in R'*, YouTube Website, accessed 25 Mar 2023. https://www.youtube.com/watch?v=fSGn9JTa1B8.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
