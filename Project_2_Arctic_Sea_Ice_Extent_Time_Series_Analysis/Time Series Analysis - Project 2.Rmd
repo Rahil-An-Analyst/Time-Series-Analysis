@@ -1,0 +1,854 @@
+---
+title: "Time Series Analysis - Project 2" 
+subtitle: "Time Series Analysis of Arctic Sea Ice Extent: Model Selection and Forecasting with ARIMA"
+author: "Prepared by Shaikh Mohammad Rahil"
+date: "` April 23, 2023`"
+output: 
+  html_document: 
+    toc: true
+  pdf_document: default
+toc-title: "Table of Contents"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r message=FALSE, warning=FALSE}
+library(TSA)
+library(forecast)
+library(fUnitRoots)
+library(tseries)
+library(lmtest)
+```
+
+## Introduction
+
+Every year, news platforms and various social media platforms has made us aware of the melting of Arctic ice. Some news even suggest the acceleration of this event. These statements already suggest the trend of arctic sea ice area will be a declining one over the years and the acceleration of this event suggests larger variations in the recent years than in the past. 
+
+## Objective
+Our aim for the collected data of Arctic sea ice extent over the years is to use specify models and fit the best model of the possible models having reasonable and parsimonious parameter estimates. This will be achieved by,
+* performing a descriptive analysis to know the data and inform futher modeling
+* Model specification
+* Model fitting based on various model scoring techniques.
+
+## Arctic Sea Ice Extent data
+The dataset is a NASA climate dataset. The data holds the area covered by the Arctic Sea ice in million square kilometers since 1979 till 2022. Thus, there are 2 columns and 44 observations.
+
+### Read data
+
+```{r}
+ArcticSea <- read.csv("C:/Users/admin/Desktop/Time Series/Assignment 2/ArcticSeaIceExtent.csv", header=TRUE)$Arctic.Sea.Ice.Extent..million.square.km. # Read raw data
+class(ArcticSea) # Data is not a TS object
+ArcticSea = ts(ArcticSea,start = 1979) # Convert to TS object
+class(ArcticSea) 
+```
+$ArcticSea$ is our raw data time series.
+
+## Descriptive Analysis
+
+Lets look at the descriptive statistics of our time series.
+
+### Summary statistics
+```{r}
+summary(ArcticSea)
+```
+The mean and median of the arctic ice extent are very close indicating symmetrical distribution.
+
+### Time Series plot:
+
+The time series plot for our data is generated using the following code chunk,
+
+```{r}
+# Time series plot using ArcticSea TS object
+plot(ArcticSea,type='o',ylab='Ice extent (mil. sq. km)', xlab='Time (Years)', main = " Figure 1: Time series plot of Arctic Sea Ice Extent series.")
+```
+
+**Plot Inference**
+
+From Figure 1, we can comment on the time series's,
+
+- **Trend**: 
+Over the period of time the Arctic sea ice extent (in million sq. km) follows a downward trend. This indicates non-stationarity in the time series.
+
+- **Seasonality**: 
+From the plot, no noticeable seasonal behavior is seen as no clear repeating patterns are visible. At this point, it can be said that there is no seasonality. Thus, our model wouldn't need a seasonal component.
+
+- **Change in variance**: 
+There is a slight increase in variance over time. See the variation in data. Around the year ~1982 we see small variations compared to variations around ~2010).
+
+- **Behavior**: 
+We notice mixed behavior of MA and AR series. We can see ups and downs or fluctuations in the time series. Thus, our time series exhibits Moving Average behavior. We can see succeeding data points follow each other at a various time points (~1983, ~1987, 2009, etc.). Thus our time series exhibits Auto Regressive behavior as well. We expect, MA component to be more dominant than AR as we observed more up and down fluctuations than following data points.
+
+- **Intervention/Change points**: 
+We do not notice any particular intervention points. Although around ~2012 the data drops a lot, we reason this behavior to the AR (Auto Regressive) nature of the series as the data points from ~2007 to ~2012 are following each other. A sudden increase in ice area from ~2012 to ~2013 seen is same as the rise and drop around ~2006 to ~2009. This behavior is regarded to the MA (Moving Average) nature of the series but with a higher variance compared to variation seen in the earlier years. Thus, no intervention points are observed.
+
+- **Shape of plot**:
+The time series seems to follow a quadratic pattern. See the decline. It is not linear, but a little curved.
+
+**Plot scatter plot?**
+Since we have AR as well as MA components, plotting scatter plot for correlation between consecutive years wouldn't be fruitful as we do not know the order of the AR and MA components. We do not know if $Y_t$ is correlated to $Y_{t-1}$ or $Y_{t-2}$ or so on. Thus, just plotting correlation scatter plot between $Y_t$ and $Y_{t-1}$ is unfruitful.
+
+### ACF and PACF plots:
+
+```{r}
+par(mfrow=c(2,1))
+acf(ArcticSea, main ="ACF plot of Arctic Sea Ice Extent time series")
+pacf(ArcticSea, main ="PACF plot of Arctic Sea Ice Extent time series")
+par(mfrow=c(1,1))
+```
+
+- **ACF plot**:
+We notice multiple autocorrelations are significant. A slowly decaying pattern indicates non stationary series. We see a 'wavish' form but it is not consistent (not repeating at a particular frequency). Thus, no seasonal behavior is observed. We did not observe seasonality in time series plot as well.  
+
+- **PACF plot**:
+We see 1 high vertical spike indicating non stationary series. We have observed non stationarity in the time series plot as well. Also, the second correlation bar is significant as well. 
+
+
+### Check normality
+
+Many model estimating procedures ( For example, Maximum Likelihood) assume normality of the residuals. If this assumption doesnt hold, then the coefficient estimates are not optimum. Thus, it is ideal to have a normal time series data and in turn a residuals. Lets look at the Quantile-Quantile (QQ) plot to to observe normality visually and the Shapiro-Wilk test to statistically confirm the result. 
+
+```{r}
+qqnorm(ArcticSea, main = "Normal Q-Q Plot of Raw ArcticSea Time Series")
+qqline(ArcticSea, col = 2)
+```
+
+We see deviations from normality. Clearly, both the tails are off and most of the data in middle is off the line as well. Thus, $ArcticSea$ time series seems to not normal distributed.
+
+```{r}
+shapiro.test(ArcticSea)
+```
+From the Shapiro-Wilk test, since p < 0.05 significance level, we reject the null hypothesis that states the data is normal.
+
+
+
+### Conclusion from descriptive analysis:
+
+From the descriptive analysis, we expect an ARIMA model as we notice AR and MA behavior. Since we notice a trend (downward) which can be fixed using differencing. Also, since Our data is not normal and has increasing variance. Log transformation or Box-Cox transformation will be considered.
+
+
+## Transformations
+
+### Box-Cox or Log transformation to improve normality or variance
+
+To improve normality and increasing variance in our time series $ArcticSea$, lets test Log and Box-Cox transformations. 
+
+```{r , warning=FALSE}
+# Get Box-Cox Confidence interval 
+BC = BoxCox.ar(ArcticSea)
+BC$ci
+title(main = "Log-likelihood versus the values of lambda for Arctic Sea Ice extent")
+
+# Get lambda based on log-likelihood having maximum likelihood
+lambda <- BC$lambda[which(max(BC$loglike) == BC$loglike)]
+lambda
+
+# Apply Box-Cox tranformed data with the lambda value 1.4
+BC.ArcticSea = (ArcticSea^lambda-1)/lambda
+
+```
+$BC.ArcticSea$ is our Box-Cox transformed data.
+
+**Is our time series better now?**
+
+- Visually comparing Time Series:
+
+``` {r}
+par(mfrow=c(3,1))
+
+plot(ArcticSea,type='o',ylab=' ', xlab=' ', main = " Time series plot of Arctic Sea Ice extent series without BC transformation")
+
+plot(BC.ArcticSea,type='o',ylab='Ice extent (mil. sq. km)', xlab=' ', main = " Time series plot of Arctic Sea Ice extent series with BC transformation")
+
+plot(log(ArcticSea),type='o',ylab=' ', xlab='Time (Years)', main = " Time series plot of Arctic Sea Ice extent series with log transformation")
+par(mfrow=c(1,1))
+```
+
+From the plot, almost no improvement in the time series is visible after BC transformation. Note, log transformation increases the variation.
+
+- Visually comparing QQ plots:
+
+```{r}
+par(mfrow=c(2,1))
+qqnorm(ArcticSea, main = "Normal Q-Q Plot of Raw ArcticSea Time Series")
+qqline(ArcticSea, col = 2)
+
+qqnorm(BC.ArcticSea, main = "Normal Q-Q Plot of BC Transformed ArcticSea Time Series")
+qqline(BC.ArcticSea, col = 2)
+par(mfrow=c(1,1))
+```
+No observable improvement in normality can be seen after BC transformation.
+
+- Shapiro-Wilk normality score test
+``` {r}
+shapiro.test(ArcticSea)
+shapiro.test(BC.ArcticSea)
+```
+The data is still not normal after box cox transformation. But the normality has improved slightly (p value increased from 0.0373 to 0.04619). Note - as p value increases, we reach closer to normality).
+
+### Conclusion from BC transformation:
+Since slight improvement in normality is achieved and although almost no improvement in increasing variance is obtained, we will proceed with BC transformed time series $BC.ArcticSea$.
+
+### Differencing to improve Stationarity
+
+The ACF, PACF and time series plots at the descriptive analysis stage of $ArcticSea$ time series tells us non-stationarity in our time series. This non-stationarity is still present in BC transformed series $BC.ArcticSea$ as no actions are taken yet to flatten the trend curve. Lets confirm the non-stationarity using Dickey-Fuller Unit-Root Test or ADF test.
+
+### Testing Stationarity on BC Transformed series
+
+**Dickey-Fuller Unit-Root Test:**
+
+The Dickey-Fuller unit-root test is used to test the null hypothesis that the process is difference nonstationary (the process is nonstationary but becomes stationary after first differencing). The alternative hypothesis is that the process is stationary. <br />
+
+$H_0$: Time series is Difference non-stationary <br />
+$H_a$: Time series is Stationary
+
+To carry out the test with $BC.ArcticSea$ data, we must determine $k$ (number of coefficients) using the following code:
+
+```{r}
+ar(BC.ArcticSea)
+```
+$k$ = 2. Now, we can perform ADF test. We will using fUnitRoots's and tseries's ADF tests for double confirmation.
+
+- **fUnitRoots's ADF test:**
+
+The ADF test with no intercept (constant) nor time trend is implemented with the following code chunk:
+
+```{r}
+# ADF test using fUnitRoots package
+adfTest(BC.ArcticSea, lags = 2, type = "nc", title = NULL,description = NULL)
+```
+
+The ADF test with an intercept (constant) but no time trend is implemented with the following code chunk:
+
+``` {r}
+adfTest(BC.ArcticSea, lags = 2, type = "c", title = NULL,description = NULL)
+```
+
+The ADF test with an intercept (constant) and a time trend is implemented with the following code chunk:
+
+``` {r}
+adfTest(BC.ArcticSea, lags = 2, type = "ct", title = NULL,description = NULL)
+# For all cases, we observed values greater than 0.1. Thus, the null hypothesis that the process is difference nonstationary (the process is nonstationary but 
+# becomes stationary after first differencing) holds.
+```
+
+For all 3 cases, we observed p values greater than 0.05. Thus, the null hypothesis that the process is difference non-stationary or non-stationary cannot be rejected.
+
+- **tseries's ADF test:**
+
+``` {r}
+# ADF test using tseries package
+adf.test(BC.ArcticSea, alternative = c("stationary")) # Omit k to use the default formula
+```
+
+Result is consistent. Since the p value is high, we cannot reject null hypothesis. Thus, BC.ArcticSea is non-stationary. 
+
+**PP Test:**
+PP test is another stationarity test. The null and alternate hypothesis are same as ADF test.
+
+``` {r}
+# using pp test
+pp.test(BC.ArcticSea)
+
+```
+PP test gives statistically significant test result has (P ≤ 0.05). This result rejects null hypothesis and says the data is stationary. This result is contrary to ADF test results and descriptive analysis. Lets perform another stationarity test, kpss test.
+
+**KPSS Test:**
+
+In KPSS, The null and alternate hypothesis are opposite to that of ADF test and PP test. Null hypothesis is that, series is stationary.
+
+``` {r}
+kpss.test(BC.ArcticSea) 
+```
+Since p<0.05, we reject null hypthesis. Data is non stationary.
+
+### Conclusion from Stationarity testing on BC transformed series:
+
+Since 2 ADF and a KPSS test suggests non-stationarity, although pp test tells otherwise, we conclude, $BC.ArcticSea$ is non-stationary.
+
+### Transformation using Differencing 
+
+Finally, since we have non stationary series, we need to transform this into a stationary series using differencing. Lets apply first differencing and check if stationarity is achieved.
+
+``` {r}
+# First difference of BC transformed series
+diff.BC.ArcticSea = diff(BC.ArcticSea)
+``` 
+
+### Time Series plot of transformed series
+
+```{r}
+# Time series plot using diff.BC.ArcticSea TS object
+plot(diff.BC.ArcticSea,type='o',ylab='Ice extent (mil. sq. km)', xlab='Time (Years)')
+title(main = "Time series plot of First Differenced BC
+transformed Arctic Sea Ice Extent series.", line = 1)
+
+```
+
+Comparing to BC transformed series,
+
+```{r}
+# Time series plot using BC.ArcticSea TS object
+plot(BC.ArcticSea,type='o',ylab='Ice extent (mil. sq. km)', xlab='Time (Years)')
+title(main = "Time series plot of BC transformed
+Arctic Sea Ice Extent series.", line = 1)
+```
+
+### Testing normality for First Differenced BC Transformed series
+
+```{r}
+shapiro.test(diff.BC.ArcticSea)
+```
+From the Shapiro-Wilk test, since p > 0.05 significance level, null hypothesis that states the data is normal holds. Thus, **First Differenced BC Transformed series is normal.**
+
+### Testing Stationarity on First Differenced BC Transformed series 
+
+Again, performing 2 ADF tests (fUnitRoots and tseries), PP and KPSS tests. *Please read results in comments next to codes. Codes are commented for fUnitRoots to avoid overcrowding of results.* 
+
+- ADF test using fUnitRoots package,
+``` {r}
+# ADF test using fUnitRoots package 
+# ar(diff.BC.ArcticSea) # k=4
+# adfTest(diff.BC.ArcticSea, lags = 4, type = "nc", title = NULL,description = NULL) gives p value 0.01
+# adfTest(diff.BC.ArcticSea, lags = 4, type = "c", title = NULL,description = NULL) gives p value 0.01
+# adfTest(diff.BC.ArcticSea, lags = 4, type = "ct", title = NULL,description = NULL) gives p value 0.02842 
+``` 
+**Result:** Null hypothesis is rejected. Data is Stationary
+
+- ADF test using tseries package,
+``` {r}
+# ADF test using tseries package
+adf.test(diff.BC.ArcticSea, alternative = c("stationary")) # Omit k to use the default formula
+```
+**Result:** p value 0.01. Null hypothesis is rejected. Data is Stationary
+
+- PP test,
+
+``` {r}
+pp.test(diff.BC.ArcticSea) # gives p value 0.01
+```
+**Result:** Consistent result. Null hypothesis is rejected. Data is Stationary
+
+- KPSS test,
+
+``` {r}
+kpss.test(diff.BC.ArcticSea) # gives p value 0.1
+```
+**Result:** Consistent result. Null hypothesis holds. Data is Stationary
+
+### Conclusion from Stationarity testing on First Differenced BC transformed series:
+
+Since all 4 test results suggests stationarity, we conclude, $diff.BC.ArcticSea$ time series is stationary. We proceed with First Differenced BC transformed series.
+
+## Model Specification
+
+### Using ACF and PACF plots
+
+Lets plot ACF and PACF autocorrelation plots for our time series $diff.BC.ArcticSea$.
+
+```{r}
+par(mfrow=c(2,1))
+acf(diff.BC.ArcticSea, main ="ACF plot of First Differenced BC tranformed series")
+# There is no slowly decaying pattern in ACF, thus the 1st differenced BC tranformed series is stationary. #mention late lags
+pacf(diff.BC.ArcticSea, main ="PACF plot of First Differenced BC tranformed series")
+par(mfrow=c(1,1))
+```
+- **ACF plot**:
+We see the first autocorrelation is significant. Also, at lag 5, we see a significant autocorrelation but we consider this as a late lag. Hence, we have one Moving average (MA) parameter, i.e, q=1. 
+
+***Descriptive analysis***
+Also, no slowly decaying pattern or wave pattern is visible, indicating, stationary and no seasonal component in First differenced time series.
+
+- **PACF plot**:
+We see 3 autocorrelations are significant (1,2 and 4). 3rd autocorrelation maybe falsely reported as insignificant and 2nd autocorrelation maybe falsely reported as significant. Thus, we have 2,3 or 4 Auto Regressive (AR) parameters, i.e, p=2,3, or 4. 
+
+***Descriptive analysis***
+Also, we do not see a first very high vertical significance bar in PACF, indicating the transformed series is stationary.
+
+**Note** - 
+
+#### Conclusion and possible set of models:
+
+From ACF and PACF plots, our time series's model is an ARIMA model with p=2,3, or 4, q=1 and d=1 (first differenced). An ARIMA model has **ARIMA(p,d,q)** format hence, our possible set of models are : <br />
+
+**{ARIMA(2,1,1), ARIMA(3,1,1), ARIMA(4,1,1)}**
+
+
+### Using EACF (Extended Autocorrelation Function)
+
+For a mixed ARMA model, extended autocorrelation (EACF) method is better than ACF and PACF for order identification of AR and MA components. A vertex is chosen based on the top most and left most $0$ in the EACF matrix ($0$ shouldn't have $x$ to the close right as it becomes less significant). Lets plot EACF matrix for our time series,
+
+
+```{r}
+eacf(diff.BC.ArcticSea)
+```
+
+
+Vertical axis gives p lags and horizontal axis gives q lags. Our vertex is at p=0,q=1. And it has two neighboring models with p=0,q=2 and p=1,q=2. Thus, from EACF, our possible set of models are, <br />
+
+IMA(1,1) or ARIMA(0,1,1) #best  <br />
+IMA(1,2) or ARIMA(0,1,2) #second best <br />
+ARIMA(1,1,2) # p=1.q=2   #third best <br />
+
+#### Possible set of models:
+
+**{ARIMA(0,1,1), ARIMA(0,1,2), ARIMA(1,1,2)}**
+
+### Using AIC and BIC scores
+
+Akaike’s (1973) Information Criterion (AIC) and Bayesian Information Criterion (BIC) are useful model specification and selection criterion. 
+
+In AIC, the aim is to reduce the AIC score based on the maximum likelihood estimation. AIC score is calculated as, <br />
+
+$$AIC=−2log(maximum likelihood)+2k$$ <br />
+
+where $k=p+q+1$ if the model contains an intercept or constant term and $k=p+q$ otherwise. $2k$ is penalty function to ensure parsimonious models and to avoid too many parameters in the model.
+
+In BIC, the aim again is to reduce BIC score based on the maximum likelihood estimation, but the penalty function is different than AIC's penalty function. BIC score is calculated as,  <br />
+
+$$BIC=−2log(maximum likelihood)+klog(n)$$ <br />
+
+For a model with finite orders, BIC is consistent.
+
+#### BIC table for Arctic Sea Ice Extent series
+
+Lets create the BIC table for our time series using the following code chunk. The nar and nma are set low as we do not see higher order models from ACF, PACF or EACF. (Note - BIC tables using nma,nar = 10 produce very high order models. nma,nar = 5 produced same result as nma,nar = 7) 
+
+``` {r}
+# Generate BIC table and plot
+res=armasubsets(y=diff.BC.ArcticSea,nar=7,nma=7,y.name='p', ar.method='ols') # fyi, taking nma and nar as 5 gives same models. 7 gives better results
+plot(res)
+title(main = "BIC table for First Differenced BC transformed
+Arctic Sea Ice Extent data", line = 5)
+```
+
+Here, p-lags give p of AR component and error-lags give q of MA component. We notice, p=0,1,2 are consistent in multiple models. and q=1,2 in the top model. Also, we consider q=4 as in the third best model. Note - top row gives the best model and vice-versa.
+
+#### Possible set of models:
+(Comments are added next to models)
+
+**ARIMA(0,1,1)** #captured by eacf <br />
+**ARIMA(0,1,2)** #captured by eacf  <br />
+
+**ARIMA(1,1,0)** <br />
+**ARIMA(2,1,0)** <br />
+**ARIMA(1,1,1)** <br />
+**ARIMA(2,1,1)** <br />
+**ARIMA(1,1,2)** #captured by eacf <br />
+**ARIMA(2,1,2)** <br />
+
+**ARIMA(0,1,4)** # large! As expected BIC tables gives larger models in general <br />
+**ARIMA(1,1,4)** # large! <br />
+**ARIMA(2,1,5)** # large! <br />
+
+### Final Set or ARIMA models
+
+Compiling ARIMA models obtained from ACF, PACF, EACF and BIC table. The final set of 12 models is, 
+
+**1. ARIMA(0,1,1)** <br />
+**2. ARIMA(0,1,2)** <br />
+
+**3. ARIMA(1,1,0)** <br />
+**4. ARIMA(2,1,0)** <br />
+**5. ARIMA(2,1,1)** <br />
+**6. ARIMA(1,1,2)** <br />
+**7. ARIMA(2,1,2)** <br />
+
+**8. ARIMA(0,1,4)** <br />
+**9. ARIMA(1,1,4)** <br />
+**10. ARIMA(2,1,5)** <br />
+
+**11. ARIMA(3,1,1)** <br />
+**12. ARIMA(4,1,1)** <br />
+
+
+## Model Fitting (Parameter Estimation)
+
+The parameter estimates of each of these 12 models need to be analysed and the best fitting model is chosen based on the estimation method used. There are 2 major parameter methods used are Least Squares Estimation and Maximum Likelihood Estimation. It is important to note that, Maximum Likelihood Estimation assumes normality in the data. CSS estimates the coefficients by trying to minimize the distance of the data points from the line of best fit. 
+
+Lets perform parameter estimation for each of the 12 models. (Note - In the test outputs, ar1 stands for p or $\phi_1$, ma1 stands for q or $\theta_1$. p or q values significance is stated in comments next to r codes.)
+
+### Parameter estimation using Least Square and Maximum likelihood techniques
+
+### 1 ARIMA(0,1,1) (Result: All significant parameters)
+
+The following code chunk perform ML and CSS estimations (CSS stands for conditional sum of squares which is the Least Square estimation method)
+
+```{r}
+# Maximum likelihood method
+model.011 = arima(BC.ArcticSea, order=c(0,1,1), method = 'ML')
+coeftest(model.011)
+# q=1 is significant
+
+# Least squares method
+model.011CSS = arima(BC.ArcticSea, order=c(0,1,1), method = 'CSS')
+coeftest(model.011CSS)
+# q=1 is significant (same result)
+```
+
+### 2 ARIMA(0,1,2) (Result: Insignificant parameters present)
+
+```{r}
+# Maximum likelihood method
+model.012 = arima(BC.ArcticSea, order=c(0,1,2), method = 'ML')
+coeftest(model.012)
+# q=1 is significant, q=2 is insignificant
+
+# Least squares method
+model.012CSS = arima(BC.ArcticSea, order=c(0,1,2), method = 'CSS')
+coeftest(model.012CSS)
+# q=1 is significant, q=2 is insignificant (same result)
+```
+
+### 3 ARIMA(1,1,0) (Result: All significant parameters)
+
+``` {r}
+# Maximum likelihood method
+model.110 = arima(BC.ArcticSea, order=c(1,1,0), method = 'ML')
+coeftest(model.110)
+# p=1 is significant
+
+# Least squares method
+model.110CSS = arima(BC.ArcticSea, order=c(1,1,0), method = 'CSS')
+coeftest(model.110CSS)
+# p=1 is significant (same result)
+```
+
+### 4 ARIMA(2,1,0) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.210 = arima(BC.ArcticSea, order=c(2,1,0), method = 'ML')
+coeftest(model.210)
+# p=1 is significant, p=2 is marginally insignificant 
+
+# Least squares method
+model.210CSS = arima(BC.ArcticSea, order=c(2,1,0), method = 'CSS')
+coeftest(model.210CSS)
+# p=1,2 are significant 
+
+# Maximum likelihood using CSS method
+model.210CSSML = arima(BC.ArcticSea, order=c(2,1,0), method = 'CSS-ML')
+coeftest(model.210CSSML)
+# same as ML 
+```
+
+Since our data is normal, we go with ML results which are backed by CSS-ML results as well. Thus, for ARIMA(2,1,0), we conclude p=1 is significant, p=2 is marginally insignificant.
+
+### 5 ARIMA(2,1,1) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.211 = arima(BC.ArcticSea, order=c(2,1,1), method = 'ML')
+coeftest(model.211)
+# q=1 is significant, p=1 & 2 are insignificant 
+
+# Least squares method
+model.211CSS = arima(BC.ArcticSea, order=c(2,1,1), method = 'CSS')
+coeftest(model.211CSS)
+# q=1 is significant, p=1 & 2 are insignificant (same result)
+```
+
+### 6 ARIMA(1,1,2) (Result: All significant parameters)
+
+``` {r}
+# Maximum likelihood method
+model.112 = arima(BC.ArcticSea, order=c(1,1,2), method = 'ML')
+coeftest(model.112)
+# p=1 q=1,2 are significant 
+
+# Least squares method
+model.112CSS = arima(BC.ArcticSea, order=c(1,1,2), method = 'CSS')
+coeftest(model.112CSS)
+# p=1 q=1,2 are significant (same result)
+
+# Maximum likelihood using CSS method
+model.112CSSML = arima(BC.ArcticSea, order=c(1,1,2), method = 'CSS-ML')
+coeftest(model.112CSSML)
+# same as ML 
+```
+Since our data is normal, we go with ML results which are backed by CSS-ML results as well. Thus, for ARIMA(1,1,2), we conclude p=1 q=1,2 are significant.
+
+### 7 ARIMA(2,1,2) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.212 = arima(BC.ArcticSea, order=c(2,1,2), method = 'ML')
+coeftest(model.212)
+# p=1 q=1,2 significant. p=2 is insignificant
+
+# Least squares method
+model.212CSS = arima(BC.ArcticSea, order=c(2,1,2), method = 'CSS')
+coeftest(model.212CSS)
+# p=1 q=1,2 significant. p=2 is insignificant (same result)
+```
+
+### 8 ARIMA(0,1,4) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.014 = arima(BC.ArcticSea, order=c(0,1,4), method = 'ML')
+coeftest(model.014)
+# q=1,4 are significant. q=2,3 are insignificant
+
+# Least squares method
+model.014CSS = arima(BC.ArcticSea, order=c(0,1,4), method = 'CSS')
+coeftest(model.014CSS)
+# q=1,4 are significant. q=2,3 are insignificant (same result)
+```
+
+### 9 ARIMA(1,1,4) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.114 = arima(BC.ArcticSea, order=c(1,1,4), method = 'ML')
+coeftest(model.114)
+# q=1 is significant. p=1 q=2,3,4 are insignificant (q=2 is marginally insignificant)
+
+# Least squares method
+model.114CSS = arima(BC.ArcticSea, order=c(1,1,4), method = 'CSS')
+coeftest(model.114CSS)
+# q=1,4 are significant.p=1 q=2,3 are insignificant 
+
+# Maximum likelihood using CSS method
+model.114CSSML = arima(BC.ArcticSea, order=c(1,1,4), method = 'CSS-ML')
+coeftest(model.114CSSML)
+# q=1 is significant. p=1 q=2,3,4 are insignificant (q=2 is marginally insignificant)
+```
+Since our data is normal, we go with ML results which are backed by CSS-ML results as well. Thus, for ARIMA(1,1,4), we conclude q=1 is significant. p=1 q=2,3,4 are insignificant.
+
+
+### 10 ARIMA(2,1,5) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.215 = arima(BC.ArcticSea, order=c(2,1,5), method = 'ML')
+coeftest(model.215)
+# p=1 q=3,5 are significant. p=2 q=1,2,4 are insignificant (p=2 is marginally insignificant)
+
+# Least squares method
+model.215CSS = arima(BC.ArcticSea, order=c(2,1,5), method = 'CSS')
+coeftest(model.215CSS)
+# q=1,5 are significant. p=1,2 q=2,3,4 are insignificant (p=1 is marginally insignificant)
+
+# Maximum likelihood using CSS method
+model.215CSSML = arima(BC.ArcticSea, order=c(2,1,5), method = 'CSS-ML')
+coeftest(model.215CSSML)
+# p=1 q=3,5 are significant. p=2 q=1,2,4 are insignificant (p=2 is marginally insignificant)
+```
+Since our data is normal, we go with ML results which are backed by CSS-ML results as well. Thus, for ARIMA(2,1,5), we conclude p=1 q=3,5 are significant. p=2 q=1,2,4 are insignificant (p=2 is marginally insignificant)
+
+
+### 11 ARIMA(3,1,1) (Result: All Insignificant parameters)
+
+``` {r}
+# Maximum likelihood method
+model.311 = arima(BC.ArcticSea, order=c(3,1,1), method = 'ML')
+coeftest(model.311)
+#p=1,2,3 q=1 all are insignificant
+
+# Least squares method
+model.311CSS = arima(BC.ArcticSea, order=c(3,1,1), method = 'CSS')
+coeftest(model.311CSS)
+#p=1,2,3 q=1 all are insignificant (same result)
+```
+
+### 12 ARIMA(4,1,1) (Result: Insignificant parameters present)
+
+``` {r}
+# Maximum likelihood method
+model.411 = arima(BC.ArcticSea, order=c(4,1,1), method = 'ML')
+coeftest(model.411)
+#p=1,2,3,4 are significant. q=1 is insignificant
+
+# Least squares method
+model.411CSS = arima(BC.ArcticSea, order=c(4,1,1), method = 'CSS')
+coeftest(model.411CSS)
+#p=1,2,3,4 are significant. q=1 is insignificant (same result)
+```
+
+### 13 ARIMA(4,1,0) (attempting underfitting model) (Result: Insignificant parameters present)
+
+Since, ARIMA(4,1,1) has q=1 is insignificant, lets see if ARIMA(4,1,0) fits,
+
+``` {r}
+# Maximum likelihood method
+model.410 = arima(BC.ArcticSea, order=c(4,1,0), method = 'ML')
+coeftest(model.410)
+#p=1,2,3 are significant. p=4 is marginally insignificant
+
+# Least squares method
+model.410CSS = arima(BC.ArcticSea, order=c(4,1,0), method = 'CSS')
+coeftest(model.410CSS)
+#p=1,2,3 are significant. p=4 is marginally insignificant
+```
+Since our data is normal, we go with ML results. Thus, for ARIMA(4,1,0), p=4 are insignificant.
+
+Parameter estimations for 13 models were analysed. Now, rate these models based on their AIC and BIC scores and pick one model with the best AIC score and one with best BIC score. The following chunk of code does this,
+
+### AIC Scores:
+
+``` {r}
+# Creating a custom function, sort.score, to arrange AIC and BIC scores for our 13 specified models 
+sort.score <- function(x, score = c("bic", "aic")){
+  if (score == "aic"){
+    x[with(x, order(AIC)),]
+  } else if (score == "bic") {
+    x[with(x, order(BIC)),]
+  } else {
+    warning('score = "x" only accepts valid arguments ("aic","bic")')
+  }
+}
+
+# Get AIC scores for 13 models and arrange in ascending order based on AIC scores 
+sort.score(AIC(model.011 ,model.012 ,model.110 ,model.210 ,model.211 ,model.112 ,model.212 ,model.014 ,model.114 ,model.215 ,model.311 ,model.411 ,model.410), score = 'aic')
+```
+Result: model112 has the least AIC score of 131.4230. That is, ARIMA(1,1,2) model is best fitting model as per AIC scores.
+
+### BIC Scores:
+
+``` {r}
+# Get AIC scores for 13 models and arrange in ascending order based on AIC scores
+sort.score(BIC(model.011 ,model.012 ,model.110 ,model.210 ,model.211 ,model.112 ,model.212 ,model.014 ,model.114 ,model.215 ,model.311 ,model.411 ,model.410), score = 'bic') 
+```
+Result: model112 has the least BIC score of 138.4678. That is, ARIMA(1,1,2) model is best fitting model as per BIC scores.
+
+### Conclusion of parameter estimation using AIC and BIC scores:
+
+ARIMA(1,1,2) model is best fitting model as it has best AIC and BIC scores.
+
+
+### Error Estimation 
+
+Another way to test the fit of a model is by checking the error estimates. Lower the error estimates, better the models fit. Lets perform error estimation for each of the 13 models and compare the results. This is done using the following chunk of code,
+
+```{r}
+#Lets check the error estimates of the 13 models
+library('forecast')
+model.011A = Arima(BC.ArcticSea, order=c(0,1,1), method='ML') 
+model.012A = Arima(BC.ArcticSea, order=c(0,1,2), method='ML') 
+model.110A = Arima(BC.ArcticSea, order=c(1,1,0), method='ML') 
+model.210A = Arima(BC.ArcticSea, order=c(2,1,0), method='ML') 
+model.211A = Arima(BC.ArcticSea, order=c(2,1,1), method='ML') 
+model.112A = Arima(BC.ArcticSea, order=c(1,1,2), method='ML') 
+model.212A = Arima(BC.ArcticSea, order=c(2,1,2), method='ML') 
+model.014A = Arima(BC.ArcticSea, order=c(0,1,4), method='ML') 
+model.114A = Arima(BC.ArcticSea, order=c(1,1,4), method='ML') 
+model.215A = Arima(BC.ArcticSea, order=c(2,1,5), method='ML') 
+model.311A = Arima(BC.ArcticSea, order=c(3,1,1), method='ML') 
+model.411A = Arima(BC.ArcticSea, order=c(4,1,1), method='ML') 
+model.410A = Arima(BC.ArcticSea, order=c(4,1,0), method='ML') 
+
+Smodel.011A <- accuracy(model.011A)[1:7]
+Smodel.012A <- accuracy(model.012A)[1:7]
+Smodel.110A <- accuracy(model.110A)[1:7]
+Smodel.210A <- accuracy(model.210A)[1:7]
+Smodel.211A <- accuracy(model.211A)[1:7]
+Smodel.112A <- accuracy(model.112A)[1:7]
+Smodel.212A <- accuracy(model.212A)[1:7]
+Smodel.014A <- accuracy(model.014A)[1:7]
+Smodel.114A <- accuracy(model.114A)[1:7]
+Smodel.215A <- accuracy(model.215A)[1:7]
+Smodel.311A <- accuracy(model.311A)[1:7]
+Smodel.411A <- accuracy(model.411A)[1:7]
+Smodel.410A <- accuracy(model.410A)[1:7]
+
+df.Smodels <- data.frame(
+  rbind(Smodel.011A, Smodel.012A, Smodel.110A
+        , Smodel.210A, Smodel.211A, Smodel.112A
+        , Smodel.212A, Smodel.014A, Smodel.114A
+        , Smodel.215A, Smodel.311A, Smodel.411A, Smodel.410A)
+)
+colnames(df.Smodels) <- c("ME", "RMSE", "MAE", "MPE", "MAPE",
+                          "MASE", "ACF1")
+rownames(df.Smodels) <- c("ARIMA(0,1,1)", "ARIMA(0,1,2)", "ARIMA(1,1,0)"
+                          ,"ARIMA(2,1,0)", "ARIMA(2,1,1)", "ARIMA(1,1,2)" 
+                          ,"ARIMA(2,1,2)", "ARIMA(0,1,4)", "ARIMA(1,1,4)" 
+                          ,"ARIMA(2,1,5)", "ARIMA(3,1,1)", "ARIMA(4,1,1)", "ARIMA(4,1,0)")
+df.Smodels
+```
+
+From error estimates table, Mean Absolute Error (MAE) and Root Mean Square Error (RMSE) for ARIMA(2,1,5) model is the lowest. But, AIC and BIC scores of ARIMA(2,1,5) models are not good. most importantly, the parameter estimation using ML and CSS for ARIMA(2,1,5) (10th model) results in insignificant parameters p=2 q=1,2,4. Only, p=1 q=3,5 are significant. Also, ARIMA(2,1,5) disregards parsimony as it is bigger model. Thus, we can reject ARIMA(2,1,5) even though it has best least error estimates.
+
+From error estimates table, as per Mean Error (ME), ARIMA(1,1,2) has second best score. Best ME score is by ARIMA(1,1,0) model, but its AIC score is the worst(13th)  and BIC score is not good as well (6th best). Although, Mean Error is not a good estimate as positive and negative error values get cancelled, ARIMA(1,1,2) scores very good as per Mean Error. 
+
+### Conclusion from Error Estimation
+ARIMA(1,1,2) is the best fitting model even though it has not so good error estimates.
+
+### Final Best Fitting model:
+
+**ARIMA(1,1,2)** has the all significant parameters as per parameter estimation using Maximum Likelihood (ML) estimation technique. ARIMA(1,1,2) has the lowest AIC and BIC scores indicating best fit out of specified 13 models. Although, performing averagely in error estimation, ARIMA(1,1,2) is the best fitting model for our Box-Cox transformed Arctic Sea Ice Extent time series data.
+
+### Overfitting models:
+
+Adjacent overfit models of ARIMA(1,1,2) are ARIMA(3,1,2) and ARIMA(1,1,4). We already have seen parameter estimates of ARIMA(1,1,4) (9th model) during Parameter Estimation resulted in insignificant parameters. As for ARIMA(3,1,2), lets perform parameter estimation using ML and CSS to estimate its fit,
+
+``` {r}
+# Maximum likelihood method
+model.312 = arima(BC.ArcticSea, order=c(3,1,2), method = 'ML')
+coeftest(model.312)
+# p=1 q=1,2 are significant. p=2,3 are insignificant. (Results points us to 112 model as p=1, q=2 are significant)
+
+# Least squares method
+model.312CSS = arima(BC.ArcticSea, order=c(3,1,2), method = 'CSS')
+coeftest(model.312CSS)
+# all coefficients are significant.
+```
+Since our data is normal, we go with ML results which gives us p=2,3 as insignificant. Thus, we reject ARIMA(3,1,2) model
+
+## Final Analysis Conclusion:
+
+The best fitting model we could achieved for Arctic Sea Ice Extent time series data is ARIMA(1,1,2) model. It has AR and MA components where MA component is more dominant than AR component as expected at descriptive analysis stage. Minor power transformation and First order Differencing helped the raw series achieve normality and stationarity. The best fitting model as per AIC and BIC scores was ARIMA(1,1,2) with parameter estimates significant. Although, performing averagely in error estimation, ARIMA(1,1,2) is the best fitting model for our Box-Cox transformed Arctic Sea Ice Extent time series data. 
+
+# Future Directions:
+
+As we have the best fitting model in hand, the model can be defined using the parameter estimates. Next, residual analysis can be performed to test any assumptions behind the fitted model. Forecasting for the Arctic Sea Ice extent using the defined model can be done to collect forecast values for required years.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
